@@ -89,7 +89,6 @@ def get_museums():
     museums = Museum.query.all()
     result = []
     for m in museums:
-        # Check if any contact has positive reply
         positive_replies = Contact.query.filter_by(museum=m.name, reply_status='Positive Reply').count()
         has_contacts = Contact.query.filter_by(museum=m.name).count()
         
@@ -112,6 +111,30 @@ def get_museums():
         })
     return jsonify(result)
 
+@app.route('/api/museums', methods=['POST'])
+def create_museum():
+    data = request.json
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    # Check if exists
+    existing = Museum.query.filter_by(name=name).first()
+    if existing:
+        return jsonify({'error': 'Museum already exists'}), 400
+    
+    museum = Museum(
+        name=name,
+        website=data.get('website', ''),
+        address=data.get('address', ''),
+        personalization=data.get('personalization', ''),
+        interest=''
+    )
+    db.session.add(museum)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'id': museum.id})
+
 @app.route('/api/museums/<int:museum_id>', methods=['PUT'])
 def update_museum(museum_id):
     museum = Museum.query.get_or_404(museum_id)
@@ -126,12 +149,18 @@ def get_contacts():
     contacts = Contact.query.all()
     result = []
     for c in contacts:
-        # Generate personalized email
+        # Get personalization - use contact's own or fall back to museum's
+        personalization = c.personalization
+        if not personalization:
+            museum = Museum.query.filter_by(name=c.museum).first()
+            if museum:
+                personalization = museum.personalization
+        
         recipient = c.first_name if c.first_name else 'Hiring Manager'
         email_text = EMAIL_TEMPLATE.format(
             name=recipient,
             organization=c.museum or '[Organization]',
-            personalization=c.personalization or '[specific project or value]'
+            personalization=personalization or '[specific project or value]'
         )
         
         result.append({
@@ -142,13 +171,46 @@ def get_contacts():
             'museum': c.museum,
             'email': c.email,
             'linkedin': c.linkedin,
-            'personalization': c.personalization,
+            'personalization': personalization,
             'email_status': c.email_status or '',
             'linkedin_status': c.linkedin_status or '',
             'reply_status': c.reply_status or '',
             'personalized_email': email_text
         })
     return jsonify(result)
+
+@app.route('/api/contacts', methods=['POST'])
+def create_contact():
+    data = request.json
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    
+    museum_name = data.get('museum', '').strip()
+    museum = Museum.query.filter_by(name=museum_name).first()
+    
+    # Get personalization - use provided or fall back to museum's
+    personalization = data.get('personalization', '').strip()
+    if not personalization and museum:
+        personalization = museum.personalization
+    
+    contact = Contact(
+        name=name,
+        first_name=extract_first_name(name),
+        title=data.get('title', ''),
+        museum=museum_name,
+        museum_id=museum.id if museum else None,
+        email=data.get('email', ''),
+        linkedin=data.get('linkedin', ''),
+        personalization=personalization,
+        email_status='',
+        linkedin_status='',
+        reply_status=''
+    )
+    db.session.add(contact)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'id': contact.id})
 
 @app.route('/api/contacts/<int:contact_id>', methods=['PUT'])
 def update_contact(contact_id):
@@ -183,13 +245,11 @@ def get_stats():
 
 @app.route('/api/import', methods=['POST'])
 def import_data():
-    """Import museums and contacts from JSON data"""
     data = request.json
     
     museums_added = 0
     contacts_added = 0
     
-    # Import museums
     for m in data.get('museums', []):
         name = m.get('name', '').strip()
         if not name:
@@ -209,7 +269,6 @@ def import_data():
     
     db.session.commit()
     
-    # Import contacts
     for c in data.get('contacts', []):
         name = c.get('name', '').strip()
         if not name:
@@ -249,18 +308,17 @@ def import_data():
 
 @app.route('/import')
 def import_page():
-    """Simple page to upload and import data"""
     return '''
     <!DOCTYPE html>
     <html>
     <head>
         <title>Import Data</title>
         <style>
-            body { font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-            textarea { width: 100%; height: 300px; margin: 10px 0; }
-            button { background: #E0B0FF; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; }
-            button:hover { background: #D896FF; }
-            #result { margin-top: 20px; padding: 15px; background: #f0f0f0; display: none; }
+            body { font-family: 'Poppins', sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #FDF8F5; }
+            textarea { width: 100%; height: 300px; margin: 10px 0; border: 2px solid #f0e6e0; border-radius: 12px; padding: 15px; font-family: monospace; }
+            button { background: linear-gradient(135deg, #E0B0FF 0%, #C9A0FF 100%); border: none; padding: 12px 25px; cursor: pointer; font-size: 16px; border-radius: 25px; font-weight: 600; }
+            button:hover { transform: translateY(-1px); }
+            #result { margin-top: 20px; padding: 15px; background: #FFF5F0; display: none; border-radius: 12px; }
         </style>
     </head>
     <body>
@@ -297,7 +355,6 @@ def import_page():
     </html>
     '''
 
-# Initialize database
 with app.app_context():
     db.create_all()
 
