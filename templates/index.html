@@ -85,6 +85,9 @@
         
         strong { font-weight: 600; color: #3d3d3d; }
         
+        .linkedin-btn { display: inline-block; background: #0077B5; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; text-decoration: none; }
+        .linkedin-btn:hover { background: #005885; color: white; text-decoration: none; }
+        
         @media (max-width: 768px) {
             .header { flex-direction: column; gap: 15px; text-align: center; }
             .header h1 { font-size: 1.2rem; }
@@ -161,9 +164,9 @@
                         <th>Name</th>
                         <th>Title</th>
                         <th>Museum</th>
-                        <th>Email</th>
+                        <th>Contact Info</th>
                         <th>Email Status</th>
-                        <th>LinkedIn</th>
+                        <th>LinkedIn Status</th>
                         <th>Reply</th>
                         <th>Action</th>
                     </tr>
@@ -344,7 +347,10 @@
                     <td><strong>${c.name}</strong></td>
                     <td class="small">${c.title || '-'}</td>
                     <td class="small">${c.museum || '-'}</td>
-                    <td class="small">${c.email || '<span style="color:#ccc;">No email</span>'}</td>
+                    <td class="small">
+                        ${c.email ? `<div style="margin-bottom:4px;">${c.email}</div>` : '<div style="color:#ccc;margin-bottom:4px;">No email</div>'}
+                        ${c.linkedin ? `<a href="${c.linkedin}" target="_blank" class="linkedin-btn">LinkedIn →</a>` : ''}
+                    </td>
                     <td>
                         <select class="status-select ${c.email_status === 'Sent' ? 'sent' : ''}" onchange="updateContact(${c.id}, 'email_status', this.value)">
                             <option value="" ${!c.email_status ? 'selected' : ''}>-</option>
