@@ -1,4 +1,5 @@
 import os
+import re
 from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
@@ -58,6 +59,26 @@ I would welcome the opportunity to discuss how I could contribute to your upcomi
 
 Yours sincerely,
 Kensho Koster'''
+
+def extract_first_name(full_name):
+    if not full_name:
+        return ""
+    name = str(full_name).strip()
+    prefixes = ['Dr ', 'Dr. ', 'Dame ', 'Prof ', 'Prof. ', 'Sir ']
+    for prefix in prefixes:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    first = name.split()[0] if name.split() else name
+    return first.rstrip('.')
+
+def extract_email(email_field):
+    if not email_field:
+        return ""
+    email_str = str(email_field)
+    if '❌' in email_str or 'No Email' in email_str.lower():
+        return ""
+    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', email_str)
+    return match.group(0) if match else ""
 
 @app.route('/')
 def index():
@@ -159,6 +180,122 @@ def get_stats():
         'positive_replies': positive_replies,
         'interested_museums': interested_museums
     })
+
+@app.route('/api/import', methods=['POST'])
+def import_data():
+    """Import museums and contacts from JSON data"""
+    data = request.json
+    
+    museums_added = 0
+    contacts_added = 0
+    
+    # Import museums
+    for m in data.get('museums', []):
+        name = m.get('name', '').strip()
+        if not name:
+            continue
+        existing = Museum.query.filter_by(name=name).first()
+        if existing:
+            continue
+        museum = Museum(
+            name=name,
+            website=m.get('website', ''),
+            address=m.get('address', ''),
+            personalization=m.get('personalization', ''),
+            interest=''
+        )
+        db.session.add(museum)
+        museums_added += 1
+    
+    db.session.commit()
+    
+    # Import contacts
+    for c in data.get('contacts', []):
+        name = c.get('name', '').strip()
+        if not name:
+            continue
+        museum_name = c.get('museum', '').strip()
+        existing = Contact.query.filter_by(name=name, museum=museum_name).first()
+        if existing:
+            continue
+        
+        museum = Museum.query.filter_by(name=museum_name).first()
+        
+        contact = Contact(
+            name=name,
+            first_name=extract_first_name(name),
+            title=c.get('title', ''),
+            museum=museum_name,
+            museum_id=museum.id if museum else None,
+            email=extract_email(c.get('email', '')),
+            linkedin=c.get('linkedin', ''),
+            personalization=c.get('personalization', ''),
+            email_status='',
+            linkedin_status='',
+            reply_status=''
+        )
+        db.session.add(contact)
+        contacts_added += 1
+    
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'museums_added': museums_added,
+        'contacts_added': contacts_added,
+        'total_museums': Museum.query.count(),
+        'total_contacts': Contact.query.count()
+    })
+
+@app.route('/import')
+def import_page():
+    """Simple page to upload and import data"""
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Import Data</title>
+        <style>
+            body { font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            textarea { width: 100%; height: 300px; margin: 10px 0; }
+            button { background: #E0B0FF; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; }
+            button:hover { background: #D896FF; }
+            #result { margin-top: 20px; padding: 15px; background: #f0f0f0; display: none; }
+        </style>
+    </head>
+    <body>
+        <h1>Import Data</h1>
+        <p>Paste the JSON data below:</p>
+        <textarea id="data" placeholder='{"museums": [...], "contacts": [...]}'></textarea>
+        <button onclick="importData()">Import</button>
+        <div id="result"></div>
+        <script>
+            async function importData() {
+                const data = document.getElementById('data').value;
+                try {
+                    const parsed = JSON.parse(data);
+                    const res = await fetch('/api/import', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(parsed)
+                    });
+                    const result = await res.json();
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('result').innerHTML = `
+                        <strong>Import Complete!</strong><br>
+                        Museums added: ${result.museums_added}<br>
+                        Contacts added: ${result.contacts_added}<br>
+                        Total museums: ${result.total_museums}<br>
+                        Total contacts: ${result.total_contacts}
+                    `;
+                } catch (e) {
+                    alert('Error: ' + e.message);
+                }
+            }
+        </script>
+    </body>
+    </html>
+    '''
 
 # Initialize database
 with app.app_context():
